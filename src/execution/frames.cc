@@ -942,8 +942,15 @@ StackFrame::Type StackFrameIterator::ComputeStackFrameType(
 #if V8_ENABLE_WEBASSEMBLY
   // If the {pc} does not point into WebAssembly code we can rely on the
   // returned {wasm_code} to be null and fall back to {GetContainingCode}.
-  if (wasm::WasmCode* wasm_code =
-          wasm::GetWasmCodeManager()->LookupCode(isolate(), pc)) {
+  bool definitely_v8_code = isolate_->embedded_blob_code_region().contains(pc);
+#ifndef V8_OS_IOS
+  definitely_v8_code |= isolate_->heap()->code_region().contains(pc);
+#endif
+  wasm::WasmCode* wasm_code = nullptr;
+  if (V8_UNLIKELY(!definitely_v8_code)) {
+    wasm_code = wasm::GetWasmCodeManager()->LookupCode(isolate(), pc);
+  }
+  if (wasm_code != nullptr) {
     switch (wasm_code->kind()) {
       case wasm::WasmCode::kWasmFunction:
         return StackFrame::WASM;
@@ -4362,11 +4369,28 @@ namespace {
 
 // Predictably converts PC to uint32 by calculating offset of the PC in
 // from the embedded builtins start or from respective MemoryChunk.
-uint32_t PcAddressForHashing(Isolate* isolate, Address address) {
-  uint32_t hashable_address;
-  if (OffHeapInstructionStream::TryGetAddressForHashing(isolate, address,
-                                                        &hashable_address)) {
-    return hashable_address;
+uint32_t PcAddressForHashing(Isolate* isolate, Address address,
+                             bool* is_on_heap_code) {
+  *is_on_heap_code = false;
+  base::AddressRegion blob_code = isolate->embedded_blob_code_region();
+  if (!blob_code.is_empty()) {
+    Address blob_start = blob_code.begin();
+    if (blob_code.contains(address)) {
+      return static_cast<uint32_t>(address - blob_start);
+    }
+
+    if (isolate->heap()->code_region().contains(address)) {
+      *is_on_heap_code = true;
+      return ObjectAddressForHashing(address);
+    }
+
+    if (isolate->is_short_builtin_calls_enabled()) {
+      DCHECK_NOT_NULL(Isolate::CurrentEmbeddedBlobCode());
+      blob_start = reinterpret_cast<Address>(Isolate::CurrentEmbeddedBlobCode());
+      if (address - blob_start < Isolate::CurrentEmbeddedBlobCodeSize()) {
+        return static_cast<uint32_t>(address - blob_start);
+      }
+    }
   }
   return ObjectAddressForHashing(address);
 }
@@ -4382,8 +4406,18 @@ V8_INLINE uint16_t InnerPointerToCodeCache::ComputeCacheIndex(
 InnerPointerToCodeCache::Entry* InnerPointerToCodeCache::GetCacheEntry(
     Address inner_pointer) {
   DCHECK(base::bits::IsPowerOfTwo(kInnerPointerToCodeCacheSize));
-  uint32_t hash = base::hash32(PcAddressForHashing(isolate_, inner_pointer));
-  uint32_t index = hash & (kInnerPointerToCodeCacheSize - 1);
+  static_assert(kInnerPointerToCodeCacheSize == 1024);
+  bool is_on_heap_code;
+  uint32_t hashable_address =
+      PcAddressForHashing(isolate_, inner_pointer, &is_on_heap_code);
+  uint32_t index;
+  if (is_on_heap_code) {
+    constexpr uint32_t kGoldenRatio = 0x9e3779b1u;
+    index = (hashable_address * kGoldenRatio) >> 22;
+  } else {
+    index = base::hash32(hashable_address) &
+            (kInnerPointerToCodeCacheSize - 1);
+  }
   Entry* entry = cache(index);
   if (entry->inner_pointer == inner_pointer) {
     // Why this DCHECK holds is nontrivial:

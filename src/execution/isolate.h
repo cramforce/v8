@@ -1996,6 +1996,11 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   const uint8_t* embedded_blob_data() const;
   uint32_t embedded_blob_data_size() const;
 
+  base::AddressRegion embedded_blob_code_region() const {
+    return {reinterpret_cast<Address>(embedded_blob_code_),
+            embedded_blob_code_size_};
+  }
+
   // Returns true if short builtin calls optimization is enabled for the
   // Isolate.
   bool is_short_builtin_calls_enabled() const {
