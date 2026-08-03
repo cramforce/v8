@@ -134,6 +134,7 @@ class SafepointTable {
                                    Address safepoint_table_address);
 
   // Iteration methods.
+  template <bool update_tagged_slots>
   void ResetIteration();
   bool has_more() const { return ptr_ < end_; }
 

@@ -63,7 +63,7 @@ SafepointTable::SafepointTable(Address instruction_start,
       has_deopt_data_(HasDeoptDataField::decode(
           base::Memory<uint32_t>(safepoint_table_address + kConfigOffset))),
       end_(safepoint_table_address_ + byte_length_) {
-  ResetIteration();
+  ResetIteration<false>();
 }
 
 namespace {
@@ -269,9 +269,14 @@ template EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE) void DecodeSafepointEntry<
 template EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE) void DecodeSafepointEntry<
     false>(const uint8_t** ptr, base::OwnedVector<uint8_t>& tagged_slots);
 
+template <bool update_tagged_slots>
 void SafepointTable::ResetIteration() {
   ptr_ = safepoint_table_address_ + kHeaderSize;
-  entry_.ResetTaggedSlots(stack_slots_);
+  if constexpr (update_tagged_slots) {
+    entry_.ResetTaggedSlots(stack_slots_);
+  } else {
+    entry_.ReleaseData();
+  }
   entry_.pc_ = kImplicitStartPC;
   entry_.deopt_index_ = SafepointEntry::kNoDeoptIndex;
   entry_.trampoline_pc_ = SafepointEntry::kNoTrampolinePC;
@@ -376,13 +381,14 @@ void SafepointTable::FindEntryImpl(Address pc) {
   if (trampoline_candidate == 0) return;
   // The "21" and "25" examples must restart the iteration in order to go back
   // to the correct entry.
-  ResetIteration();
+  ResetIteration<update_tagged_slots>();
   while (entry_.trampoline_pc() != trampoline_candidate) {
     Advance<update_tagged_slots>();
   }
 }
 
 SafepointEntry& SafepointTable::FindEntry(Address pc) {
+  entry_.ResetTaggedSlots(stack_slots_);
   FindEntryImpl<true>(pc);
   CHECK(entry_.is_initialized());
   return entry_;
@@ -395,6 +401,7 @@ SafepointEntry& SafepointTable::FindEntry_NoStackSlots(Address pc) {
 }
 
 void SafepointTable::Print(std::ostream& os) {
+  entry_.ResetTaggedSlots(stack_slots_);
   os << "Safepoints (stack slots = " << stack_slots_
      << ", byte size = " << byte_length_ << ")\n";
   if (!has_more()) {
