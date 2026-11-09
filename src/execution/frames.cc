@@ -3179,7 +3179,7 @@ bool OptimizedJSFrame::TryGetSingleInterpretedFrameForCallSiteBuilder(
                                    AllowAllocation{true});
   }
 
-  DCHECK_GT(data->ProtectedLiteralArray()->length(), 0);
+  DCHECK_GT(data->ProtectedLiteralArray()->ulength().value(), 0u);
   Tagged<BytecodeArray> bytecode_array = SbxCast<BytecodeArray>(
       data->ProtectedLiteralArray()->get(0));
 
@@ -3274,7 +3274,7 @@ bool OptimizedJSFrame::SummarizeIntoFromLookup(
   // would parse every value in every inlined frame.
 
   if (bytecode_offset_info.is_single_interpreted_frame) {
-    DCHECK_GT(data->ProtectedLiteralArray()->length(), 0);
+    DCHECK_GT(data->ProtectedLiteralArray()->ulength().value(), 0u);
     DirectHandle<AbstractCode> abstract_code(
         Cast<AbstractCode>(SbxCast<BytecodeArray>(
             data->ProtectedLiteralArray()->get(0))),
