@@ -72,8 +72,12 @@ function assertIsError(error, prototype) {
     // Proxies forward the "prototype" lookup to their target.
     assertIsError(new (new Proxy(C, {}))('m'), C.prototype);
     assertIsError(Reflect.construct(C, ['m'], new Proxy(C, {})), C.prototype);
-    assertIsError(Reflect.construct(C, ['m'], C.bind(null)), C.prototype);
-    // Bound functions have no "prototype": the intrinsic is used.
+    // Bound functions have no own "prototype": the lookup goes to the
+    // bound function's [[Prototype]], the target's [[Prototype]] (Error for
+    // the NativeErrors, Function.prototype for Error) ...
+    assertIsError(Reflect.construct(C, ['m'], C.bind(null)),
+                  Object.getPrototypeOf(C).prototype ?? C.prototype);
+    // ... and if that has none either, the intrinsic is used.
     assertIsError(Reflect.construct(C, ['m'], Array.bind(null)), C.prototype);
     const proxy_prototype = {};
     assertIsError(Reflect.construct(C, ['m'], new Proxy(function() {}, {
