@@ -17,6 +17,7 @@
 #include "src/handles/maybe-handles.h"
 #include "src/logging/runtime-call-stats-scope.h"
 #include "src/objects/call-site-info-inl.h"
+#include "src/objects/descriptor-array-inl.h"
 #include "src/objects/foreign-inl.h"
 #include "src/objects/js-array-inl.h"
 #include "src/objects/property-descriptor.h"
@@ -593,6 +594,12 @@ MaybeHandle<JSObject> ErrorUtils::Construct(
     DirectHandle<String> msg_string;
     ASSIGN_RETURN_ON_EXCEPTION(isolate, msg_string,
                                Object::ToString(isolate, message));
+    // |err| was allocated above from the initial map of an Error constructor
+    // (or a map derived from it for a subclass) and nothing else can reach it
+    // yet, so it has no "message" property. Adding it is what
+    // Object::TransitionAndWriteDataProperty() does for a property that a
+    // LookupIterator did not find: follow or create the map transition and
+    // initialize the new field. "message" has no associated protector.
     bool stored_message = false;
     if (V8_LIKELY(IsJSError(*err) && err->HasFastProperties())) {
       DirectHandle<Map> old_map =
@@ -604,12 +611,19 @@ MaybeHandle<JSObject> ErrorUtils::Construct(
                     !old_map->is_prototype_map() &&
                     old_map->is_extensible())) {
         DCHECK(!IsSpecialReceiverMap(*old_map));
+        DCHECK(!ReadOnlyRoots(isolate).IsNameForProtector(
+            ReadOnlyRoots(isolate).message_string()));
+        DCHECK(old_map->instance_descriptors()
+                   ->Search(ReadOnlyRoots(isolate).message_string(), *old_map)
+                   .is_not_found());
         DirectHandle<Map> new_map = Map::TransitionToDataProperty(
             isolate, old_map, isolate->factory()->message_string(), msg_string,
             DONT_ENUM, PropertyConstness::kConst, StoreOrigin::kNamed);
         if (V8_LIKELY(!new_map->is_dictionary_map())) {
           JSObject::MigrateToMap(isolate, err, new_map);
           InternalIndex descriptor = new_map->LastAdded();
+          DCHECK(new_map->GetLastDescriptorName() ==
+                 ReadOnlyRoots(isolate).message_string());
           err->WriteToField(descriptor,
                             new_map->GetLastDescriptorDetails(), *msg_string);
 #if VERIFY_HEAP
