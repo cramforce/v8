@@ -64,6 +64,12 @@ DeoptimizationData::GetBytecodeOffsetInfo(int i) const {
 
 void DeoptimizationData::SetBytecodeOffset(
     int i, BytecodeOffset value, bool is_single_interpreted_frame) {
+  // The entry stores offset + 1 (so that None, -1, becomes 0), complemented
+  // when the flag is set: flagged entries are the negative Smis. The only
+  // offset this cannot represent is Smi::kMaxValue, which no bytecode offset
+  // or builtin continuation id reaches.
+  static_assert(BytecodeArray::kMaxLength < Smi::kMaxValue);
+  static_assert(BytecodeOffset::None().ToInt() == -1);
   DCHECK_GE(value.ToInt(), BytecodeOffset::None().ToInt());
   DCHECK_LT(value.ToInt(), Smi::kMaxValue);
   int biased_offset = value.ToInt() + 1;
