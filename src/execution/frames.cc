@@ -3142,7 +3142,12 @@ FrameSummaries OptimizedJSFrame::Summarize(
 
   DeoptimizationData::BytecodeOffsetInfo bytecode_offset_info =
       data->GetBytecodeOffsetInfo(deopt_index);
-  if (bytecode_offset_info.is_single_interpreted_frame) {
+  // A derived constructor is entered with the hole as its receiver; after
+  // super() the value of `this` lives in an interpreter register that only
+  // the translation describes. Leave such frames to the walk below, which
+  // reads the receiver from the translation like main always did.
+  if (bytecode_offset_info.is_single_interpreted_frame &&
+      !IsTheHole(receiver())) {
     DCHECK_GT(data->ProtectedLiteralArray()->ulength().value(), 0u);
     DirectHandle<AbstractCode> abstract_code(
         Cast<AbstractCode>(SbxCast<BytecodeArray>(
