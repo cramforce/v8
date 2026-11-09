@@ -2229,13 +2229,23 @@ Handle<DeoptimizationData> MaglevCodeGenerator::GenerateDeoptimizationData(
 
   // Populate deoptimization entries.
   int i = 0;
+  // A deopt point whose translation is exactly one interpreted frame is
+  // flagged so that stack-trace capture can use protected literal 0 as its
+  // bytecode array without looking at the translation.
+  auto is_single_interpreted_frame = [&](const DeoptFrame& top_frame) {
+    if (top_frame.parent() != nullptr ||
+        top_frame.type() != DeoptFrame::FrameType::kInterpretedFrame) {
+      return false;
+    }
+    CHECK(*protected_deopt_literals_vector_[0] ==
+          *top_frame.as_interpreted().GetBytecodeArray().object());
+    return true;
+  };
   for (EagerDeoptInfo* deopt_info : code_gen_state_.eager_deopts()) {
     DCHECK_NE(deopt_info->translation_index(), -1);
     const DeoptFrame& top_frame = deopt_info->top_frame();
-    raw_data->SetBytecodeOffset(
-        i, top_frame.GetBytecodeOffset(),
-        top_frame.parent() == nullptr &&
-            top_frame.type() == DeoptFrame::FrameType::kInterpretedFrame);
+    raw_data->SetBytecodeOffset(i, top_frame.GetBytecodeOffset(),
+                                is_single_interpreted_frame(top_frame));
     raw_data->SetTranslationIndex(
         i, Smi::FromInt(deopt_info->translation_index()));
     raw_data->SetPc(i, Smi::FromInt(deopt_info->deopt_entry_label()->pos()));
@@ -2247,10 +2257,8 @@ Handle<DeoptimizationData> MaglevCodeGenerator::GenerateDeoptimizationData(
   for (LazyDeoptInfo* deopt_info : code_gen_state_.lazy_deopts()) {
     DCHECK_NE(deopt_info->translation_index(), -1);
     const DeoptFrame& top_frame = deopt_info->top_frame();
-    raw_data->SetBytecodeOffset(
-        i, top_frame.GetBytecodeOffset(),
-        top_frame.parent() == nullptr &&
-            top_frame.type() == DeoptFrame::FrameType::kInterpretedFrame);
+    raw_data->SetBytecodeOffset(i, top_frame.GetBytecodeOffset(),
+                                is_single_interpreted_frame(top_frame));
     raw_data->SetTranslationIndex(
         i, Smi::FromInt(deopt_info->translation_index()));
     raw_data->SetPc(i, Smi::FromInt(deopt_info->deopt_entry_label()->pos()));

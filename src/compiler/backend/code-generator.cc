@@ -1473,6 +1473,13 @@ DeoptimizationExit* CodeGenerator::BuildTranslation(
   const bool is_single_interpreted_frame =
       descriptor->outer_state() == nullptr &&
       descriptor->type() == FrameStateType::kUnoptimizedFunction;
+  // Stack-trace capture reads protected literal 0 for such an exit without
+  // looking at its translation, so the frame must have been given that
+  // literal. This is what makes the seeding above load-bearing: it must not
+  // be skipped or reordered for any exit that sets the flag.
+  CHECK_IMPLIES(is_single_interpreted_frame,
+                protected_deoptimization_literals_[0].equals(
+                    descriptor->bytecode_array().ToHandleChecked()));
   DeoptimizationExit* const exit = zone()->New<DeoptimizationExit>(
       current_source_position_, descriptor->bailout_id(), translation_index,
       pc_offset, entry.kind(), entry.reason(), is_single_interpreted_frame,

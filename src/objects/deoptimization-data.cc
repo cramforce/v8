@@ -219,7 +219,19 @@ void DeoptimizationData::Verify(Handle<BytecodeArray> bytecode) const {
         if (first_frame) {
           bailout = BytecodeOffset(iterator.NextOperand());
           first_frame = false;
-          iterator.SkipOperands(TranslationOpcodeOperandCount(frame) - 1);
+          int operands_read = 1;
+          if (IsTranslationInterpreterFrameOpcode(frame)) {
+            // The outermost JavaScript frame is the function this code was
+            // compiled for. Its bytecode array is protected literal 0: stack
+            // trace capture relies on that for single-frame translations.
+            iterator.NextOperand();  // SharedFunctionInfo literal id.
+            const int bytecode_array_id = iterator.NextOperand();
+            CHECK_EQ(0, bytecode_array_id);
+            CHECK(ProtectedLiteralArray()->get(0) == *bytecode);
+            operands_read = 3;
+          }
+          iterator.SkipOperands(TranslationOpcodeOperandCount(frame) -
+                                operands_read);
           continue;
         }
       }
