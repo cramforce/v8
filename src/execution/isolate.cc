@@ -1734,7 +1734,7 @@ DirectHandle<StackTraceInfo> GetDetailedStackTraceFromCallSiteInfos(
 
 MaybeDirectHandle<JSObject> Isolate::CaptureAndSetErrorStack(
     DirectHandle<JSObject> error_object, FrameSkipMode mode,
-    Handle<Object> caller) {
+    Handle<Object> caller, bool fresh_error_object) {
   TRACE_EVENT(TRACE_DISABLED_BY_DEFAULT("v8.stack_trace"),
               perfetto::StaticString(__func__));
   Handle<UnionOf<Undefined, FixedArray>> call_site_infos_or_formatted_stack =
@@ -1802,6 +1802,15 @@ MaybeDirectHandle<JSObject> Isolate::CaptureAndSetErrorStack(
     }
     error_stack = factory()->NewErrorStackData(
         call_site_infos_or_formatted_stack, stack_trace);
+  }
+
+  // A freshly constructed JSError already holds undefined in its reserved
+  // stack field, so there is nothing to store when no stack was collected.
+  if (fresh_error_object && IsUndefined(*error_stack)) {
+    DCHECK(IsJSError(*error_object));
+    DCHECK(IsUndefined(*JSReceiver::GetDataProperty(
+        this, error_object, factory()->error_stack_symbol())));
+    return error_object;
   }
 
   // JSError instances reserve a field for the private stack symbol.

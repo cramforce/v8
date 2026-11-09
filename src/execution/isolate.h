@@ -1004,7 +1004,7 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
       int limit, StackTrace::StackTraceOptions options);
   MaybeDirectHandle<JSObject> CaptureAndSetErrorStack(
       DirectHandle<JSObject> error_object, FrameSkipMode mode,
-      Handle<Object> caller);
+      Handle<Object> caller, bool fresh_error_object);
   Handle<StackTraceInfo> GetDetailedStackTrace(
       DirectHandle<JSReceiver> error_object);
   Handle<FixedArray> GetSimpleStackTrace(DirectHandle<JSReceiver> error_object);

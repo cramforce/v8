@@ -688,7 +688,8 @@ MaybeHandle<JSObject> ErrorUtils::Construct(
     case StackTraceCollection::kEnabled:
       RETURN_ON_EXCEPTION(isolate,
                           isolate->CaptureAndSetErrorStack(
-                              err, mode, indirect_handle(caller, isolate)));
+                              err, mode, indirect_handle(caller, isolate),
+                              true));
       break;
     case StackTraceCollection::kDisabled:
       break;
@@ -1327,7 +1328,8 @@ MaybeHandle<Object> ErrorUtils::CaptureStackTrace(Isolate* isolate,
   // Collect the stack trace and store it in |object|'s private
   // "error_stack_symbol" property.
   RETURN_ON_EXCEPTION(isolate,
-                      isolate->CaptureAndSetErrorStack(object, mode, caller));
+                      isolate->CaptureAndSetErrorStack(object, mode, caller,
+                                                       false));
 
   return isolate->factory()->undefined_value();
 }
