@@ -1177,8 +1177,14 @@ class CallSiteBuilder {
                isolate_->raw_native_context());
   }
 
+  // Like IsVisibleInStackTrace, for callers that have already dropped frames
+  // from other security origins. VisitStack_ForCallSiteBuilder does that
+  // before a frame reaches the builder, so that a cross-origin frame neither
+  // counts against the limit nor consumes the frame-skipping state.
   bool IsVisibleInStackTraceSecurityChecked(
       DirectHandle<JSFunction> function) {
+    DCHECK(function->native_context()->HasSameSecurityTokenAs(
+        isolate_->raw_native_context()));
     return ShouldIncludeFrame(function) && IsNotHidden(function);
   }
 
