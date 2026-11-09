@@ -4241,7 +4241,8 @@ uint32_t PcAddressForHashing(Isolate* isolate, Address address,
 
     if (isolate->is_short_builtin_calls_enabled()) {
       DCHECK_NOT_NULL(Isolate::CurrentEmbeddedBlobCode());
-      blob_start = reinterpret_cast<Address>(Isolate::CurrentEmbeddedBlobCode());
+      blob_start =
+          reinterpret_cast<Address>(Isolate::CurrentEmbeddedBlobCode());
       if (address - blob_start < Isolate::CurrentEmbeddedBlobCodeSize()) {
         return static_cast<uint32_t>(address - blob_start);
       }
@@ -4267,8 +4268,7 @@ InnerPointerToCodeCache::Entry* InnerPointerToCodeCache::GetCacheEntry(
     static_assert(kIndexBits > 0 && kIndexBits < 32);
     index = (hashable_address * kGoldenRatio) >> (32 - kIndexBits);
   } else {
-    index = base::hash32(hashable_address) &
-            (kInnerPointerToCodeCacheSize - 1);
+    index = base::hash32(hashable_address) & (kInnerPointerToCodeCacheSize - 1);
   }
   Entry* entry = cache(index);
   if (entry->inner_pointer == inner_pointer) {
