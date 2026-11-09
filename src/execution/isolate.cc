@@ -1675,6 +1675,8 @@ Handle<FixedArray> CaptureSimpleStackTrace(Isolate* isolate, int limit,
   TRACE_EVENT_BEGIN(TRACE_DISABLED_BY_DEFAULT("v8.stack_trace"),
                     perfetto::StaticString(__func__), "maxFrameCount", limit);
 
+  // Nothing to collect: the stack walk below would stop at the first frame
+  // it visits and return the same empty array.
   if (V8_UNLIKELY(limit == 0)) {
     TRACE_EVENT_END(TRACE_DISABLED_BY_DEFAULT("v8.stack_trace"), "frameCount",
                     0);
@@ -1767,12 +1769,8 @@ MaybeDirectHandle<JSObject> Isolate::CaptureAndSetErrorStack(
         limit = stack_trace_for_uncaught_exceptions_frame_limit_;
       }
     }
-    if (V8_UNLIKELY(limit == 0)) {
-      call_site_infos_or_formatted_stack = factory()->empty_fixed_array();
-    } else {
-      call_site_infos_or_formatted_stack =
-          CaptureSimpleStackTrace(this, limit, mode, caller);
-    }
+    call_site_infos_or_formatted_stack =
+        CaptureSimpleStackTrace(this, limit, mode, caller);
   }
   DirectHandle<Object> error_stack = call_site_infos_or_formatted_stack;
 
