@@ -90,7 +90,6 @@
 #include "src/objects/abstract-code-inl.h"
 #include "src/objects/backing-store.h"
 #include "src/objects/call-site-info-inl.h"
-#include "src/objects/field-index-inl.h"
 #include "src/objects/feedback-vector.h"
 #include "src/objects/hash-table-inl.h"
 #include "src/objects/heap-object-set-map-inl.h"
@@ -1805,16 +1804,13 @@ MaybeDirectHandle<JSObject> Isolate::CaptureAndSetErrorStack(
         call_site_infos_or_formatted_stack, stack_trace);
   }
 
-  // Fresh JSError instances reserve the private stack slot as their first
-  // in-object property. Error.captureStackTrace() can target arbitrary
-  // objects, so retain the generic property-store fallback.
-  if (V8_LIKELY(IsJSError(*error_object) &&
-                error_object->HasFastProperties())) {
-    Tagged<Map> map = error_object->map();
-    DCHECK_GT(map->GetInObjectProperties(), 0);
-    error_object->FastPropertyAtPut(
-        FieldIndex::ForPropertyIndex(map, 0), *error_stack);
-  } else {
+  // JSError instances reserve a field for the private stack symbol.
+  // Error.captureStackTrace() can target arbitrary objects, including
+  // JSErrors that lost the initial layout, so retain the generic
+  // property-store fallback.
+  if (V8_UNLIKELY(!ErrorUtils::TryStoreReservedField(
+          *error_object, ErrorUtils::kErrorStackSymbolDescriptor,
+          ReadOnlyRoots(this).error_stack_symbol(), *error_stack))) {
     RETURN_ON_EXCEPTION(
         this,
         Object::SetProperty(this, error_object, factory()->error_stack_symbol(),
