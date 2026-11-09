@@ -4399,25 +4399,28 @@ uint32_t PcAddressForHashing(Isolate* isolate, Address address,
 
 V8_INLINE uint16_t InnerPointerToCodeCache::ComputeCacheIndex(
     Address address) const {
-  uint32_t hash = base::hash32(PcAddressForHashing(isolate_, address));
-  return static_cast<uint16_t>(hash & (kInnerPointerToCodeCacheSize - 1));
+  bool is_on_heap_code;
+  uint32_t hashable_address =
+      PcAddressForHashing(isolate_, address, &is_on_heap_code);
+  uint32_t index;
+  if (is_on_heap_code) {
+    // Fibonacci hashing: the top bits of the product select the slot.
+    constexpr uint32_t kGoldenRatio = 0x9e3779b1u;
+    constexpr int kIndexBits =
+        base::bits::WhichPowerOfTwo(kInnerPointerToCodeCacheSize);
+    static_assert(kIndexBits > 0 && kIndexBits < 32);
+    index = (hashable_address * kGoldenRatio) >> (32 - kIndexBits);
+  } else {
+    index = base::hash32(hashable_address) &
+            (kInnerPointerToCodeCacheSize - 1);
+  }
+  return static_cast<uint16_t>(index);
 }
 
 InnerPointerToCodeCache::Entry* InnerPointerToCodeCache::GetCacheEntry(
     Address inner_pointer) {
   DCHECK(base::bits::IsPowerOfTwo(kInnerPointerToCodeCacheSize));
-  static_assert(kInnerPointerToCodeCacheSize == 1024);
-  bool is_on_heap_code;
-  uint32_t hashable_address =
-      PcAddressForHashing(isolate_, inner_pointer, &is_on_heap_code);
-  uint32_t index;
-  if (is_on_heap_code) {
-    constexpr uint32_t kGoldenRatio = 0x9e3779b1u;
-    index = (hashable_address * kGoldenRatio) >> 22;
-  } else {
-    index = base::hash32(hashable_address) &
-            (kInnerPointerToCodeCacheSize - 1);
-  }
+  uint32_t index = ComputeCacheIndex(inner_pointer);
   Entry* entry = cache(index);
   if (entry->inner_pointer == inner_pointer) {
     // Why this DCHECK holds is nontrivial:
