@@ -23,7 +23,6 @@
 #include "src/execution/frame-constants.h"
 #include "src/execution/frames-inl.h"
 #include "src/execution/vm-state-inl.h"
-#include "src/heap/heap-inl.h"
 #include "src/ic/ic-stats.h"
 #include "src/logging/counters.h"
 #include "src/objects/abstract-code-inl.h"
@@ -3053,6 +3052,19 @@ FrameSummary::BuiltinFrameSummary::CreateStackFrameInfo() const {
 
 #endif  // V8_ENABLE_WEBASSEMBLY
 
+FrameSummary::~FrameSummary() {
+#define FRAME_SUMMARY_DESTR(kind, type, field, desc) \
+  case kind:                                         \
+    field.~type();                                   \
+    break;
+  switch (base_.kind()) {
+    FRAME_SUMMARY_VARIANTS(FRAME_SUMMARY_DESTR)
+    default:
+      UNREACHABLE();
+  }
+#undef FRAME_SUMMARY_DESTR
+}
+
 FrameSummary FrameSummary::GetInnermost(const CommonFrame* frame) {
   FrameSummaries summaries = frame->Summarize();
   DCHECK_LT(0, summaries.size());
@@ -3110,19 +3122,6 @@ FRAME_SUMMARY_DISPATCH(DirectHandle<StackFrameInfo>, CreateStackFrameInfo)
 
 #undef CASE_WASM_INTERPRETED
 #undef FRAME_SUMMARY_DISPATCH
-
-FrameSummary::~FrameSummary() {
-#define FRAME_SUMMARY_DESTR(kind, type, field, desc) \
-  case kind:                                         \
-    field.~type();                                   \
-    break;
-  switch (base_.kind()) {
-    FRAME_SUMMARY_VARIANTS(FRAME_SUMMARY_DESTR)
-    default:
-      UNREACHABLE();
-  }
-#undef FRAME_SUMMARY_DESTR
-}
 
 FrameSummaries OptimizedJSFrame::Summarize(
     AllowAllocation allow_allocation) const {
