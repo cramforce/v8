@@ -1678,6 +1678,14 @@ Handle<FixedArray> CaptureSimpleStackTrace(Isolate* isolate, int limit,
   TRACE_EVENT_BEGIN(TRACE_DISABLED_BY_DEFAULT("v8.stack_trace"),
                     perfetto::StaticString(__func__), "maxFrameCount", limit);
 
+  // Nothing to collect: the stack walk below would stop at the first frame
+  // it visits and return the same empty array.
+  if (V8_UNLIKELY(limit == 0)) {
+    TRACE_EVENT_END(TRACE_DISABLED_BY_DEFAULT("v8.stack_trace"), "frameCount",
+                    0);
+    return isolate->factory()->empty_fixed_array();
+  }
+
 #if V8_ENABLE_WEBASSEMBLY
   wasm::WasmCodeRefScope code_ref_scope;
 #endif  // V8_ENABLE_WEBASSEMBLY
