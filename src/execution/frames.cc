@@ -3143,7 +3143,7 @@ FrameSummaries OptimizedJSFrame::Summarize(
   DeoptimizationData::BytecodeOffsetInfo bytecode_offset_info =
       data->GetBytecodeOffsetInfo(deopt_index);
   if (bytecode_offset_info.is_single_interpreted_frame) {
-    DCHECK_GT(data->ProtectedLiteralArray()->length(), 0);
+    DCHECK_GT(data->ProtectedLiteralArray()->ulength().value(), 0u);
     DirectHandle<AbstractCode> abstract_code(
         Cast<AbstractCode>(SbxCast<BytecodeArray>(
             data->ProtectedLiteralArray()->get(0))),
