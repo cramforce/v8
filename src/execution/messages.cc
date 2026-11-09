@@ -19,6 +19,7 @@
 #include "src/logging/runtime-call-stats-scope.h"
 #include "src/objects/call-site-info-inl.h"
 #include "src/objects/descriptor-array-inl.h"
+#include "src/objects/field-index-inl.h"
 #include "src/objects/foreign-inl.h"
 #include "src/objects/js-array-inl.h"
 #include "src/objects/property-descriptor.h"
@@ -648,10 +649,14 @@ MaybeHandle<JSObject> ErrorUtils::Construct(
     }
 
     if (v8_flags.use_original_message_for_stack_trace) {
-      RETURN_ON_EXCEPTION(isolate,
-                          JSObject::SetOwnPropertyIgnoreAttributes(
-                              err, isolate->factory()->error_message_symbol(),
-                              msg_string, DONT_ENUM));
+      if (V8_UNLIKELY(!TryStoreReservedField(
+              *err, kErrorMessageSymbolDescriptor,
+              ReadOnlyRoots(isolate).error_message_symbol(), *msg_string))) {
+        RETURN_ON_EXCEPTION(isolate,
+                            JSObject::SetOwnPropertyIgnoreAttributes(
+                                err, isolate->factory()->error_message_symbol(),
+                                msg_string, DONT_ENUM));
+      }
     }
   }
 
@@ -1178,6 +1183,32 @@ bool ErrorUtils::HasErrorStackSymbolOwnProperty(Isolate* isolate,
     return true;
   }
   return JSReceiver::HasOwnProperty(isolate, object, name).FromMaybe(false);
+}
+
+// static
+bool ErrorUtils::TryStoreReservedField(Tagged<JSObject> object, int descriptor,
+                                       Tagged<Symbol> symbol,
+                                       Tagged<Object> value) {
+  DisallowGarbageCollection no_gc;
+  Tagged<Map> map = object->map();
+  if (!IsJSErrorMap(map) || map->is_dictionary_map() || map->is_deprecated()) {
+    return false;
+  }
+  if (descriptor >= map->NumberOfOwnDescriptors()) return false;
+  Tagged<DescriptorArray> descriptors = map->instance_descriptors();
+  InternalIndex index(descriptor);
+  if (descriptors->GetKey(index) != symbol) return false;
+  PropertyDetails details = descriptors->GetDetails(index);
+  // The generic store would have to generalize anything but a mutable tagged
+  // field first.
+  if (details.location() != PropertyLocation::kField ||
+      details.constness() != PropertyConstness::kMutable ||
+      !details.representation().IsTagged()) {
+    return false;
+  }
+  DCHECK_EQ(PropertyKind::kData, details.kind());
+  object->FastPropertyAtPut(FieldIndex::ForDetails(map, details), value);
+  return true;
 }
 
 // static

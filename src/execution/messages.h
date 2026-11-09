@@ -130,6 +130,23 @@ class ErrorUtils : public AllStatic {
   static bool HasErrorStackSymbolOwnProperty(Isolate* isolate,
                                              DirectHandle<JSObject> object);
 
+  // Descriptor indices of the private fields that Genesis reserves in the
+  // initial map of every Error constructor (see InstallError()).
+  static constexpr int kErrorStackSymbolDescriptor = 0;
+  static constexpr int kErrorMessageSymbolDescriptor = 1;
+
+  // Stores |value| into the reserved field for the private |symbol| if
+  // |object| is a JSError whose map still describes that field at
+  // |descriptor| the way the initial map does (a mutable tagged field), and
+  // returns true. This is the store that Object::SetProperty would end up
+  // doing. Returns false without any effect otherwise, e.g. for objects that
+  // are not JSErrors, for dictionary-mode JSErrors, and for JSErrors that
+  // went through dictionary mode (whose fields are const and can live out of
+  // object): the caller then has to use the generic property store.
+  static bool TryStoreReservedField(Tagged<JSObject> object, int descriptor,
+                                    Tagged<Symbol> symbol,
+                                    Tagged<Object> value);
+
   struct StackPropertyLookupResult {
     // The holder of the |error_stack_symbol| or empty handle.
     MaybeDirectHandle<JSObject> error_stack_symbol_holder;

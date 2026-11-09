@@ -1804,11 +1804,19 @@ MaybeDirectHandle<JSObject> Isolate::CaptureAndSetErrorStack(
         call_site_infos_or_formatted_stack, stack_trace);
   }
 
-  RETURN_ON_EXCEPTION(
-      this,
-      Object::SetProperty(this, error_object, factory()->error_stack_symbol(),
-                          error_stack, StoreOrigin::kMaybeKeyed,
-                          Just(ShouldThrow::kThrowOnError)));
+  // JSError instances reserve a field for the private stack symbol.
+  // Error.captureStackTrace() can target arbitrary objects, including
+  // JSErrors that lost the initial layout, so retain the generic
+  // property-store fallback.
+  if (V8_UNLIKELY(!ErrorUtils::TryStoreReservedField(
+          *error_object, ErrorUtils::kErrorStackSymbolDescriptor,
+          ReadOnlyRoots(this).error_stack_symbol(), *error_stack))) {
+    RETURN_ON_EXCEPTION(
+        this,
+        Object::SetProperty(this, error_object, factory()->error_stack_symbol(),
+                            error_stack, StoreOrigin::kMaybeKeyed,
+                            Just(ShouldThrow::kThrowOnError)));
+  }
   return error_object;
 }
 
