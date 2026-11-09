@@ -70,20 +70,21 @@ assertEquals(0, framesAfter('Error.stackTraceLimit = -1;'));
 assertEquals(0, framesAfter('Error.stackTraceLimit = -Infinity;'));
 assertEquals(0, framesAfter('Error.stackTraceLimit = NaN;'));
 assertEquals(0, framesAfter('Error.stackTraceLimit = 0.9;'));
-assertEquals(2, framesAfter('Error.stackTraceLimit = 2.9;', isFast));
+assertEquals(2, framesAfter('Error.stackTraceLimit = 2.9;', isSlow));
 assertEquals(21, framesAfter('Error.stackTraceLimit = 21;'));
 assertTrue(framesAfter('Error.stackTraceLimit = Infinity;') > 21);
 assertTrue(framesAfter('Error.stackTraceLimit = 1e12;') > 21);
 assertTrue(framesAfter('Error.stackTraceLimit = 2 ** 31;') > 21);
 
-// The field changes representation.
+// Storing a value that is not a Smi (like 2.9 above, or Infinity) puts the
+// constructor into dictionary mode, and it stays there.
 assertEquals(7, framesAfter(
-    'Error.stackTraceLimit = 2.5; Error.stackTraceLimit = 7;', isFast));
+    'Error.stackTraceLimit = 2.5; Error.stackTraceLimit = 7;', isSlow));
 assertEquals(2, framesAfter(
-    'Error.stackTraceLimit = 7; Error.stackTraceLimit = 2.5;', isFast));
+    'Error.stackTraceLimit = 7; Error.stackTraceLimit = 2.5;', isSlow));
 assertEquals(4, framesAfter(`
     Error.stackTraceLimit = 1.5; Error.stackTraceLimit = {};
-    Error.stackTraceLimit = 4;`, isFast));
+    Error.stackTraceLimit = 4;`, isSlow));
 
 // Values that are not numbers are not converted and disable stack capturing.
 for (const value of ['"5"', '""', 'undefined', 'null', 'true', '5n',
@@ -104,11 +105,10 @@ assertEquals(4, framesAfter(
     'Error.stackTraceLimit = 4; Object.seal(Error);'));
 
 // Accessors are not called. Redefining the existing data property as an
-// accessor normalizes the constructor, adding the accessor after a delete
-// keeps it in fast mode.
+// accessor normalizes the constructor, and so does deleting it first.
 assertEquals(kNoStack, framesAfter(kGetter, isSlow));
 assertEquals(
-    kNoStack, framesAfter('delete Error.stackTraceLimit;' + kGetter, isFast));
+    kNoStack, framesAfter('delete Error.stackTraceLimit;' + kGetter, isSlow));
 assertEquals(kNoStack, framesAfter(`
     Object.defineProperty(Error, 'stackTraceLimit',
         {set(v) { log.push('set'); }, configurable: true});`));
@@ -233,9 +233,12 @@ assertEquals(10, framesAfter(`
       6, Realm.eval(realm_a, 'count(deep(20, () => new B.Error("x")))'));
   assertEquals(
       6, Realm.eval(realm_a, 'count(deep(20, () => new B.TypeError("x")))'));
-  assertEquals(6, Realm.eval(realm_a, `
+  // With a new.target other than the constructor that was called, capturing
+  // skips frames until it reaches new.target's frame, which is not on the
+  // stack, so there are no frames whichever limit applies.
+  assertEquals(0, Realm.eval(realm_a, `
       count(deep(20, () => Reflect.construct(B.Error, ['x'], Error)))`));
-  assertEquals(2, Realm.eval(realm_a, `
+  assertEquals(0, Realm.eval(realm_a, `
       count(deep(20, () => Reflect.construct(Error, ['x'], B.Error)))`));
   assertEquals(6, Realm.eval(realm_a, `
       (() => { const o = {}; deep(20, () => B.Error.captureStackTrace(o));
