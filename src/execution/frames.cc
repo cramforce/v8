@@ -4255,14 +4255,17 @@ uint32_t PcAddressForHashing(Isolate* isolate, Address address,
 InnerPointerToCodeCache::Entry* InnerPointerToCodeCache::GetCacheEntry(
     Address inner_pointer) {
   DCHECK(base::bits::IsPowerOfTwo(kInnerPointerToCodeCacheSize));
-  static_assert(kInnerPointerToCodeCacheSize == 1024);
   bool is_on_heap_code;
   uint32_t hashable_address =
       PcAddressForHashing(isolate_, inner_pointer, &is_on_heap_code);
   uint32_t index;
   if (is_on_heap_code) {
+    // Fibonacci hashing: the top bits of the product select the slot.
     constexpr uint32_t kGoldenRatio = 0x9e3779b1u;
-    index = (hashable_address * kGoldenRatio) >> 22;
+    constexpr int kIndexBits =
+        base::bits::WhichPowerOfTwo(kInnerPointerToCodeCacheSize);
+    static_assert(kIndexBits > 0 && kIndexBits < 32);
+    index = (hashable_address * kGoldenRatio) >> (32 - kIndexBits);
   } else {
     index = base::hash32(hashable_address) &
             (kInnerPointerToCodeCacheSize - 1);

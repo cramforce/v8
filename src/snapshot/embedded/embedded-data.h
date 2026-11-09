@@ -27,12 +27,6 @@ class OffHeapInstructionStream final : public AllStatic {
   // Returns true, iff the given pc points into an off-heap instruction stream.
   static bool PcIsOffHeap(Isolate* isolate, Address pc);
 
-  // If the address belongs to the embedded code blob, predictably converts it
-  // to uint32 by calculating offset from the embedded code blob start and
-  // returns true, and false otherwise.
-  static bool TryGetAddressForHashing(Isolate* isolate, Address address,
-                                      uint32_t* hashable_address);
-
   // Returns the corresponding builtin ID if lookup succeeds, and kNoBuiltinId
   // otherwise.
   static Builtin TryLookupCode(Isolate* isolate, Address address);
