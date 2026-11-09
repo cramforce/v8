@@ -201,6 +201,8 @@ class StackFrame {
     // see StackFrameIterator::Advance.
     uint32_t iteration_depth = 0;
   };
+  // The cache index must not grow the state: it is copied for every frame.
+  static_assert(sizeof(State) == 6 * kSystemPointerSize + 2 * kInt32Size);
 
   // Convert a stack frame type to a marker that can be stored on the stack.
   //
