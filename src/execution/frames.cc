@@ -1684,7 +1684,8 @@ SafepointEntry& GetSafepointEntryFromCodeCache(
   if (!entry->safepoint_is_initialized()) {
     SafepointTable table(isolate, inner_pointer, entry->code.value());
     entry->ToSafepoint();
-    entry->safepoint_entry.CopyFrom(table.FindEntry(inner_pointer));
+    // {table} is not used again, so its entry's tagged slots can be taken.
+    entry->safepoint_entry.MoveFrom(table.FindEntry(inner_pointer));
     DCHECK(entry->safepoint_entry.is_initialized());
   } else {
 #if DEBUG

@@ -57,6 +57,15 @@ class SafepointEntry : public SafepointEntryBase {
     tagged_slots_ = base::OwnedCopyOf(src.tagged_slots());
   }
 
+  // Like {CopyFrom()}, but takes over {src}'s tagged slots instead of copying
+  // them. For the ephemeral entry of a {SafepointTable} that is about to go
+  // out of scope: {src} must not be used afterwards.
+  void MoveFrom(SafepointEntry& src) {
+    SafepointEntryBase::operator=(src);
+    tagged_register_indexes_ = src.tagged_register_indexes_;
+    tagged_slots_ = std::move(src.tagged_slots_);
+  }
+
  private:
   friend class SafepointTable;
 
