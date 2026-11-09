@@ -1696,7 +1696,7 @@ Handle<FixedArray> CaptureSimpleStackTrace(Isolate* isolate, int limit,
   // If --async-stack-traces are enabled and the "current microtask" is a
   // PromiseReactionJobTask, we try to enrich the stack trace with async
   // frames.
-  if (v8_flags.async_stack_traces) {
+  if (v8_flags.async_stack_traces && !builder.Full()) {
     CaptureAsyncStackTrace(isolate, &builder);
   }
 
