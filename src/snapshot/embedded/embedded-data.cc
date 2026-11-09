@@ -49,29 +49,6 @@ bool OffHeapInstructionStream::PcIsOffHeap(Isolate* isolate, Address pc) {
 }
 
 // static
-bool OffHeapInstructionStream::TryGetAddressForHashing(
-    Isolate* isolate, Address address, uint32_t* hashable_address) {
-  // Mksnapshot calls this while the embedded blob is not available yet.
-  if (isolate->embedded_blob_code() == nullptr) return false;
-  DCHECK_NOT_NULL(Isolate::CurrentEmbeddedBlobCode());
-
-  EmbeddedData d = EmbeddedData::FromBlob(isolate);
-  if (d.IsInCodeRange(address)) {
-    *hashable_address = d.AddressForHashing(address);
-    return true;
-  }
-
-  if (isolate->is_short_builtin_calls_enabled()) {
-    d = EmbeddedData::FromBlob();
-    if (d.IsInCodeRange(address)) {
-      *hashable_address = d.AddressForHashing(address);
-      return true;
-    }
-  }
-  return false;
-}
-
-// static
 Builtin OffHeapInstructionStream::TryLookupCode(Isolate* isolate,
                                                 Address address) {
   // Mksnapshot calls this while the embedded blob is not available yet.
