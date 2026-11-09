@@ -90,7 +90,10 @@
 #include "src/objects/abstract-code-inl.h"
 #include "src/objects/backing-store.h"
 #include "src/objects/call-site-info-inl.h"
+#include "src/objects/descriptor-array-inl.h"
+#include "src/objects/dictionary-inl.h"
 #include "src/objects/feedback-vector.h"
+#include "src/objects/field-index-inl.h"
 #include "src/objects/hash-table-inl.h"
 #include "src/objects/heap-object-set-map-inl.h"
 #include "src/objects/instance-type-inl.h"
@@ -2212,18 +2215,70 @@ MaybeDirectHandle<Script> Isolate::CurrentReferrerScript() {
   return direct_handle(script->GetEvalOrigin(), this);
 }
 
+namespace {
+
+// Reads |key| from |object| if it is an own data property: a field (or
+// descriptor constant) of a fast-mode object, or a data entry of a
+// dictionary-mode object. Returns false in every other case (accessor or
+// absent), for which the caller has to do the generic lookup. |object| must
+// not need access checks or have interceptors. Double fields are returned as
+// the HeapNumber box they are stored in, so |value| may only be read, never
+// stored anywhere.
+bool TryGetOwnDataPropertyFast(Isolate* isolate, DirectHandle<JSObject> object,
+                               DirectHandle<Name> key, Tagged<Object>* value) {
+  DisallowGarbageCollection no_gc;
+  Tagged<Map> map = object->map();
+  DCHECK(!IsSpecialReceiverMap(map));
+  if (V8_LIKELY(!map->is_dictionary_map())) {
+    Tagged<DescriptorArray> descriptors = map->instance_descriptors();
+    InternalIndex descriptor = descriptors->SearchWithCache(isolate, *key, map);
+    if (descriptor.is_not_found()) return false;
+    PropertyDetails details = descriptors->GetDetails(descriptor);
+    if (details.kind() != PropertyKind::kData) return false;
+    if (V8_LIKELY(details.location() == PropertyLocation::kField)) {
+      *value = object->RawFastPropertyAt(FieldIndex::ForDetails(map, details));
+    } else {
+      *value = descriptors->GetStrongValue(descriptor);
+    }
+    return true;
+  }
+  auto lookup = [&](auto dictionary) {
+    InternalIndex entry = dictionary->FindEntry(isolate, key);
+    if (entry.is_not_found()) return false;
+    if (dictionary->DetailsAt(entry).kind() != PropertyKind::kData) return false;
+    *value = dictionary->ValueAt(entry);
+    return true;
+  };
+  if constexpr (V8_ENABLE_SWISS_NAME_DICTIONARY_BOOL) {
+    return lookup(object->property_dictionary_swiss());
+  } else {
+    return lookup(object->property_dictionary());
+  }
+}
+
+}  // namespace
+
 bool Isolate::GetStackTraceLimit(Isolate* isolate, int* result) {
   if (v8_flags.correctness_fuzzer_suppressions) return false;
   DirectHandle<JSObject> error = isolate->error_function();
 
   DirectHandle<String> key = isolate->factory()->stackTraceLimit_string();
-  DirectHandle<Object> stack_trace_limit =
-      JSReceiver::GetDataProperty(isolate, error, key);
-  if (!IsNumber(*stack_trace_limit)) return false;
+  // Error.stackTraceLimit is almost always an own data property of the Error
+  // constructor. Everything else (deleted, accessor, inherited from the
+  // prototype chain) keeps the semantics of JSReceiver::GetDataProperty.
+  double limit;
+  {
+    Tagged<Object> raw_limit;
+    if (V8_UNLIKELY(
+            !TryGetOwnDataPropertyFast(isolate, error, key, &raw_limit))) {
+      raw_limit = *JSReceiver::GetDataProperty(isolate, error, key);
+    }
+    if (!IsNumber(raw_limit)) return false;
+    limit = Object::NumberValue(Cast<Number>(raw_limit));
+  }
 
   // Ensure that limit is not negative.
-  *result = std::max(
-      FastD2IChecked(Object::NumberValue(Cast<Number>(*stack_trace_limit))), 0);
+  *result = std::max(FastD2IChecked(limit), 0);
 
   if (*result != v8_flags.stack_trace_limit) {
     isolate->CountUsage(v8::Isolate::kErrorStackTraceLimit);
