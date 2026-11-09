@@ -14,6 +14,7 @@
 #include "src/common/globals.h"
 #include "src/debug/debug.h"
 #include "src/execution/isolate-inl.h"
+#include "src/execution/messages.h"
 #include "src/execution/microtask-queue.h"
 #include "src/execution/protectors.h"
 #include "src/extensions/cputracemark-extension.h"
@@ -1569,6 +1570,8 @@ void InstallError(Isolate* isolate, DirectHandle<JSObject> global,
         isolate, factory->error_stack_symbol(), kJSErrorErrorStackSymbolOffset,
         DONT_ENUM, Representation::Tagged(), true);
     initial_map->AppendDescriptor(isolate, &d);
+    DCHECK_EQ(ErrorUtils::kErrorStackSymbolDescriptor,
+              initial_map->LastAdded().as_int());
   }
   {
     // error_message_symbol
@@ -1577,6 +1580,8 @@ void InstallError(Isolate* isolate, DirectHandle<JSObject> global,
                               kJSErrorErrorMessageSymbolOffset, DONT_ENUM,
                               Representation::Tagged(), true);
     initial_map->AppendDescriptor(isolate, &d);
+    DCHECK_EQ(ErrorUtils::kErrorMessageSymbolDescriptor,
+              initial_map->LastAdded().as_int());
   }
   {  // stack
     DirectHandle<AccessorPair> new_pair = factory->NewAccessorPair();
