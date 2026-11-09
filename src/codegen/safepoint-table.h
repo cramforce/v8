@@ -97,13 +97,15 @@ class SafepointTable {
 
   int stack_slots() const { return stack_slots_; }
 
-  int FindReturnPC(int pc_offset);
+  V8_EXPORT_PRIVATE int FindReturnPC(int pc_offset);
 
   // Returns the entry for the given pc. The underlying {SafepointEntry} is
   // ephemeral; don't let the reference outlive the {SafepointTable} instance!
   V8_EXPORT_PRIVATE SafepointEntry& FindEntry(Address pc);
-  // Same, but doesn't populate the result's {tagged_slots()} to save time.
-  SafepointEntry& FindEntry_NoStackSlots(Address pc);
+  // Same, but doesn't populate the result's {tagged_slots()} to save time:
+  // the returned entry has no storage for them, so it must not be passed to
+  // {SafepointEntry::CopyFrom()} or compared with {operator==}.
+  V8_EXPORT_PRIVATE SafepointEntry& FindEntry_NoStackSlots(Address pc);
 
   void Print(std::ostream&);
 
