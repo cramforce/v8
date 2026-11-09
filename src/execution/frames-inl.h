@@ -97,16 +97,27 @@ class InnerPointerToCodeCache final {
   }
 
   Entry* GetCacheEntry(Address inner_pointer);
+  // Like GetCacheEntry, and also reports which slot the entry lives in. The
+  // slot index depends on {inner_pointer} only, so a caller that looks the
+  // same address up again can pass it to GetCacheEntryFromKnownIndex and skip
+  // the hash. The index says nothing about the slot's content: it stays the
+  // right slot for that address until a GC moves the code (and with it the
+  // address), never longer.
   Entry* GetCacheEntryAndIndex(Address inner_pointer, uint16_t* index_out);
   Entry* GetCacheEntryFromKnownIndex(Address inner_pointer, uint16_t index);
 
  private:
   V8_INLINE uint16_t ComputeCacheIndex(Address inner_pointer) const;
+  V8_INLINE Entry* GetOrFillEntry(uint16_t index, Address inner_pointer);
   Entry* cache(int index) { return &cache_[index]; }
 
   Isolate* const isolate_;
 
   static const int kInnerPointerToCodeCacheSize = 1024;
+  // Slot indices are handed out as uint16_t, with the maximum value reserved
+  // for "no index" (StackFrame::kNoInnerPointerToCodeCacheIndex).
+  static_assert(kInnerPointerToCodeCacheSize <=
+                std::numeric_limits<uint16_t>::max());
   Entry cache_[kInnerPointerToCodeCacheSize];
 };
 

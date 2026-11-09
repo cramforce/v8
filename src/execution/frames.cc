@@ -4374,17 +4374,16 @@ uint32_t PcAddressForHashing(Isolate* isolate, Address address) {
 
 V8_INLINE uint16_t InnerPointerToCodeCache::ComputeCacheIndex(
     Address address) const {
+  DCHECK(base::bits::IsPowerOfTwo(kInnerPointerToCodeCacheSize));
   uint32_t hash = base::hash32(PcAddressForHashing(isolate_, address));
   return static_cast<uint16_t>(hash & (kInnerPointerToCodeCacheSize - 1));
 }
 
-InnerPointerToCodeCache::Entry* InnerPointerToCodeCache::GetCacheEntry(
-    Address inner_pointer) {
-  DCHECK(base::bits::IsPowerOfTwo(kInnerPointerToCodeCacheSize));
-  uint32_t hash = base::hash32(PcAddressForHashing(isolate_, inner_pointer));
-  uint32_t index = hash & (kInnerPointerToCodeCacheSize - 1);
+V8_INLINE InnerPointerToCodeCache::Entry*
+InnerPointerToCodeCache::GetOrFillEntry(uint16_t index,
+                                        Address inner_pointer) {
   Entry* entry = cache(index);
-  if (entry->inner_pointer == inner_pointer) {
+  if (V8_LIKELY(entry->inner_pointer == inner_pointer)) {
     // Why this DCHECK holds is nontrivial:
     //
     // - the cache is filled lazily on calls to this function.
@@ -4410,43 +4409,28 @@ InnerPointerToCodeCache::Entry* InnerPointerToCodeCache::GetCacheEntry(
   return entry;
 }
 
+InnerPointerToCodeCache::Entry* InnerPointerToCodeCache::GetCacheEntry(
+    Address inner_pointer) {
+  return GetOrFillEntry(ComputeCacheIndex(inner_pointer), inner_pointer);
+}
+
 InnerPointerToCodeCache::Entry*
 InnerPointerToCodeCache::GetCacheEntryAndIndex(Address inner_pointer,
                                                uint16_t* index_out) {
-  uint16_t index = ComputeCacheIndex(inner_pointer);
-  *index_out = index;
-  Entry* entry = cache(index);
-  if (entry->inner_pointer == inner_pointer) {
-    DCHECK_EQ(entry->code,
-              isolate_->heap()->GcSafeFindCodeForInnerPointer(inner_pointer));
-  } else {
-    entry->code =
-        isolate_->heap()->GcSafeFindCodeForInnerPointer(inner_pointer);
-    entry->ResetSafepoint();
-    entry->inner_pointer = inner_pointer;
-  }
-  return entry;
+  *index_out = ComputeCacheIndex(inner_pointer);
+  return GetOrFillEntry(*index_out, inner_pointer);
 }
 
 InnerPointerToCodeCache::Entry*
 InnerPointerToCodeCache::GetCacheEntryFromKnownIndex(Address inner_pointer,
                                                      uint16_t index) {
+  // {index} must be the slot GetCacheEntryAndIndex returned for this very
+  // {inner_pointer}. The slot itself may have been refilled or flushed since
+  // (the cache is direct-mapped and cleared by the GC), which GetOrFillEntry
+  // handles like any other miss.
   DCHECK_LT(index, kInnerPointerToCodeCacheSize);
   DCHECK_EQ(index, ComputeCacheIndex(inner_pointer));
-  Entry* entry = cache(index);
-  if (V8_LIKELY(entry->inner_pointer == inner_pointer)) {
-    DCHECK_EQ(entry->code,
-              isolate_->heap()->GcSafeFindCodeForInnerPointer(inner_pointer));
-  } else {
-    // A profiling signal may replace the direct-mapped slot between frame
-    // classification and stack summarization. The known index remains the
-    // correct hash slot, so refill it without hashing the PC again.
-    entry->code =
-        isolate_->heap()->GcSafeFindCodeForInnerPointer(inner_pointer);
-    entry->ResetSafepoint();
-    entry->inner_pointer = inner_pointer;
-  }
-  return entry;
+  return GetOrFillEntry(index, inner_pointer);
 }
 
 // Frame layout helper class implementation.
