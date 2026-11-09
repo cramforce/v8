@@ -4393,7 +4393,8 @@ uint32_t PcAddressForHashing(Isolate* isolate, Address address,
 
     if (isolate->is_short_builtin_calls_enabled()) {
       DCHECK_NOT_NULL(Isolate::CurrentEmbeddedBlobCode());
-      blob_start = reinterpret_cast<Address>(Isolate::CurrentEmbeddedBlobCode());
+      blob_start =
+          reinterpret_cast<Address>(Isolate::CurrentEmbeddedBlobCode());
       if (address - blob_start < Isolate::CurrentEmbeddedBlobCodeSize()) {
         return static_cast<uint32_t>(address - blob_start);
       }
@@ -4404,8 +4405,8 @@ uint32_t PcAddressForHashing(Isolate* isolate, Address address,
 
 }  // namespace
 
-V8_INLINE uint16_t InnerPointerToCodeCache::ComputeCacheIndex(
-    Address address) const {
+V8_INLINE uint16_t
+InnerPointerToCodeCache::ComputeCacheIndex(Address address) const {
   bool is_on_heap_code;
   uint32_t hashable_address =
       PcAddressForHashing(isolate_, address, &is_on_heap_code);
@@ -4418,8 +4419,7 @@ V8_INLINE uint16_t InnerPointerToCodeCache::ComputeCacheIndex(
     static_assert(kIndexBits > 0 && kIndexBits < 32);
     index = (hashable_address * kGoldenRatio) >> (32 - kIndexBits);
   } else {
-    index = base::hash32(hashable_address) &
-            (kInnerPointerToCodeCacheSize - 1);
+    index = base::hash32(hashable_address) & (kInnerPointerToCodeCacheSize - 1);
   }
   return static_cast<uint16_t>(index);
 }
