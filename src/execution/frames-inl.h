@@ -81,7 +81,10 @@ class InnerPointerToCodeCache final {
     }
   };
 
-  static_assert(sizeof(Entry) == 64);
+  // deopt_index occupies the padding after safepoint_kind on 64-bit targets,
+  // so the entry keeps its 64 bytes there. On 32-bit targets there is
+  // no such padding and the entry grows by four bytes (40 to 44).
+  static_assert(kSystemPointerSize != 8 || sizeof(Entry) == 64);
 
   explicit InnerPointerToCodeCache(Isolate* isolate) : isolate_(isolate) {}
 
