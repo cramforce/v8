@@ -3203,6 +3203,10 @@ bool OptimizedJSFrame::TryGetSingleInterpretedFrameForCallSiteBuilder(
   DeoptimizationData::BytecodeOffsetInfo bytecode_offset_info =
       data->GetBytecodeOffsetInfo(deopt_index);
   if (!bytecode_offset_info.is_single_interpreted_frame) return false;
+  // A derived constructor is entered with the hole as its receiver; after
+  // super() the value of `this` lives in an interpreter register that only
+  // the translation describes. Leave such frames to the generic summary.
+  if (IsTheHole(receiver())) return false;
 
   DCHECK_GT(data->ProtectedLiteralArray()->ulength().value(), 0u);
   Tagged<BytecodeArray> bytecode_array = SbxCast<BytecodeArray>(
@@ -3279,7 +3283,10 @@ void OptimizedJSFrame::SummarizeInto(
 
   DeoptimizationData::BytecodeOffsetInfo bytecode_offset_info =
       data->GetBytecodeOffsetInfo(deopt_index);
-  if (bytecode_offset_info.is_single_interpreted_frame) {
+  // A derived constructor's receiver slot holds the hole (see
+  // TryGetSingleInterpretedFrameForCallSiteBuilder): use the walk below.
+  if (bytecode_offset_info.is_single_interpreted_frame &&
+      !IsTheHole(receiver())) {
     DCHECK_GT(data->ProtectedLiteralArray()->ulength().value(), 0u);
     DirectHandle<AbstractCode> abstract_code(
         Cast<AbstractCode>(SbxCast<BytecodeArray>(
