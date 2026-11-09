@@ -282,6 +282,33 @@ TEST_F(SafepointTableTest, Bigger) {
   EXPECT_EQ(0, flip_index(kStackSlotCount - 1));
   EXPECT_EQ(kStackSlotCount - 1, flip_index(0));
 
+  // The entry's stack map has exactly the bits of {data}, no others.
+  auto ExpectExactSlots = [&](const Data& data, const SafepointEntry& entry) {
+    EXPECT_EQ(entry.tagged_slots().size(),
+              static_cast<size_t>((kStackSlotCount + 7) / 8));
+    for (int bit = 0; bit < kStackSlotCount; bit++) {
+      SCOPED_TRACE(bit);
+      EXPECT_EQ(Contains(entry.tagged_slots(), flip_index(bit)),
+                data.bits.Contains(bit));
+    }
+  };
+  // A metadata-only lookup of {pc} finds the same entry as the full lookup
+  // that produced {full}.
+  auto ExpectSameMetadata = [&](int pc, const SafepointEntry& full) {
+    SafepointTable table =
+        SafepointTable::ForTest(instruction_start, safepoint_table_start);
+    SafepointEntry& entry =
+        table.FindEntry_NoStackSlots(instruction_start + pc);
+    EXPECT_EQ(entry.pc(), full.pc());
+    EXPECT_EQ(entry.has_deoptimization_index(),
+              full.has_deoptimization_index());
+    if (full.has_deoptimization_index()) {
+      EXPECT_EQ(entry.deoptimization_index(), full.deoptimization_index());
+    }
+    EXPECT_EQ(entry.trampoline_pc(), full.trampoline_pc());
+    EXPECT_EQ(entry.tagged_register_indexes(), full.tagged_register_indexes());
+  };
+
   for (const Data& data : test_data) {
     SCOPED_TRACE(data.pc);
     SafepointTable table =
@@ -297,6 +324,8 @@ TEST_F(SafepointTableTest, Bigger) {
       SCOPED_TRACE(bit);
       EXPECT_TRUE(Contains(entry.tagged_slots(), flip_index(bit)));
     }
+    ExpectExactSlots(data, entry);
+    ExpectSameMetadata(data.pc, entry);
   }
 
   // Test the deduplication logic: when looking for a PC between two safepoints
@@ -311,10 +340,112 @@ TEST_F(SafepointTableTest, Bigger) {
       {0x6dc, 0x490},   // Must rewind past two entries without trampolines.
       {0x700, 0x5df}};  // Beyond the last trampoline.
   for (auto [lookup, returned] : fallbacks) {
+    SCOPED_TRACE(lookup);
     SafepointTable table =
         SafepointTable::ForTest(instruction_start, safepoint_table_start);
     SafepointEntry& entry = table.FindEntry(instruction_start + lookup);
     EXPECT_EQ(entry.pc(), returned);
+    // Lookups that overshoot (the "between two trampolines" and "beyond the
+    // last trampoline" cases) restart the iteration. The stack map must be
+    // rebuilt from an all-zero vector then, not xor'ed onto the overshot one.
+    for (const Data& data : test_data) {
+      if (data.pc == returned) ExpectExactSlots(data, entry);
+    }
+    ExpectSameMetadata(lookup, entry);
+  }
+
+  // Both the return pc and its trampoline map back to the return pc.
+  for (const Data& data : test_data) {
+    SCOPED_TRACE(data.pc);
+    {
+      SafepointTable table =
+          SafepointTable::ForTest(instruction_start, safepoint_table_start);
+      EXPECT_EQ(table.FindReturnPC(data.pc), data.pc);
+    }
+    if (data.trampoline != kNoTrampoline) {
+      SafepointTable table =
+          SafepointTable::ForTest(instruction_start, safepoint_table_start);
+      EXPECT_EQ(table.FindReturnPC(data.trampoline), data.pc);
+    }
+  }
+}
+
+TEST_F(SafepointTableTest, TaggedRegisters) {
+  SafepointTableBuilder builder(zone());
+#if V8_TARGET_ARCH_ARM64
+  Assembler assembler(zone(), AssemblerOptions{});
+#else
+  Assembler assembler(AssemblerOptions{});
+#endif  // V8_TARGET_ARCH_ARM64
+
+  static constexpr int kStackSlotCount = 12;
+  struct Data {
+    int pc;
+    int deopt;
+    int trampoline;
+    uint32_t registers;
+    int slot;
+  };
+  int kNoDeopt = SafepointEntry::kNoDeoptIndex;
+  int kNoTrampoline = SafepointEntry::kNoTrampolinePC;
+  const Data test_data[] = {
+      {0x10, 0, 0x80, 0b0101, 3}, {0x20, kNoDeopt, kNoTrampoline, 0, 3},
+      {0x30, 1, 0x88, 0b1000, 7}, {0x40, kNoDeopt, kNoTrampoline, 0b0011, 9},
+      {0x50, 2, 0x90, 0, 9},
+  };
+  int last_updated = 0;
+  for (const Data& data : test_data) {
+    {
+      SafepointTableBuilder::Safepoint sp =
+          builder.DefineSafepoint(&assembler, data.pc);
+      sp.DefineTaggedStackSlot(data.slot);
+      for (int reg = 0; reg < 4; reg++) {
+        if (data.registers & (1u << reg)) sp.DefineTaggedRegister(reg);
+      }
+    }
+    if (data.deopt != kNoDeopt) {
+      last_updated = builder.UpdateDeoptimizationInfo(data.pc, data.trampoline,
+                                                      last_updated, data.deopt);
+    }
+  }
+  builder.Emit(&assembler, kStackSlotCount);
+
+  std::unique_ptr<AssemblerBuffer> fake_code = assembler.ReleaseBuffer();
+  Address instruction_start = reinterpret_cast<Address>(fake_code->start());
+  Address safepoint_table_start =
+      instruction_start + builder.safepoint_table_offset();
+
+  // {lookup pc, index into test_data of the entry it resolves to}. The last
+  // three overshoot and restart the iteration.
+  std::pair<int, int> lookups[] = {{0x10, 0}, {0x20, 1}, {0x30, 2}, {0x40, 3},
+                                   {0x50, 4}, {0x45, 3}, {0x80, 0}, {0x88, 2},
+                                   {0x90, 4}, {0x84, 0}, {0x8c, 2}, {0x100, 4}};
+  for (auto [lookup, index] : lookups) {
+    SCOPED_TRACE(lookup);
+    const Data& data = test_data[index];
+    {
+      SafepointTable table =
+          SafepointTable::ForTest(instruction_start, safepoint_table_start);
+      SafepointEntry& entry = table.FindEntry(instruction_start + lookup);
+      EXPECT_EQ(entry.pc(), data.pc);
+      EXPECT_EQ(entry.tagged_register_indexes(), data.registers);
+      for (int bit = 0; bit < kStackSlotCount; bit++) {
+        SCOPED_TRACE(bit);
+        EXPECT_EQ(Contains(entry.tagged_slots(), kStackSlotCount - 1 - bit),
+                  bit == data.slot);
+      }
+    }
+    {
+      // The metadata-only lookup skips the stack map, not the registers.
+      SafepointTable table =
+          SafepointTable::ForTest(instruction_start, safepoint_table_start);
+      SafepointEntry& entry =
+          table.FindEntry_NoStackSlots(instruction_start + lookup);
+      EXPECT_EQ(entry.pc(), data.pc);
+      EXPECT_EQ(entry.tagged_register_indexes(), data.registers);
+      EXPECT_EQ(entry.has_deoptimization_index(), data.deopt != kNoDeopt);
+      EXPECT_EQ(entry.trampoline_pc(), data.trampoline);
+    }
   }
 }
 
