@@ -3122,7 +3122,9 @@ WasmCodeRefScope::WasmCodeRefScope()
 WasmCodeRefScope::~WasmCodeRefScope() {
   DCHECK_EQ(this, current_code_refs_scope);
   current_code_refs_scope = previous_scope_;
-  WasmCode::DecrementRefCount(base::VectorOf(code_ptrs_));
+  if (!code_ptrs_.empty()) {
+    WasmCode::DecrementRefCount(base::VectorOf(code_ptrs_));
+  }
 }
 
 // static
