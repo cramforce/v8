@@ -15,6 +15,7 @@
 #include "src/execution/isolate-inl.h"
 #include "src/execution/isolate.h"
 #include "src/handles/maybe-handles.h"
+#include "src/heap/factory-inl.h"
 #include "src/logging/runtime-call-stats-scope.h"
 #include "src/objects/call-site-info-inl.h"
 #include "src/objects/foreign-inl.h"
@@ -580,10 +581,11 @@ MaybeHandle<JSObject> ErrorUtils::Construct(
   // 2. Let O be ? OrdinaryCreateFromConstructor(newTarget, "%ErrorPrototype%",
   //    « [[ErrorData]] »).
   Handle<JSObject> err;
-  if (V8_LIKELY(*new_target_recv == *target && target->has_initial_map() &&
-                !target->initial_map()->is_dictionary_map())) {
-    DirectHandle<Map> initial_map(target->initial_map(), isolate);
-    err = isolate->factory()->NewJSObjectFromMap(initial_map);
+  if (V8_LIKELY(*new_target_recv == *target && target->has_initial_map())) {
+    // No subclassing: this is what JSObject::New() ends up doing once
+    // JSFunction::GetDerivedMap() has returned the constructor's initial map.
+    err = isolate->factory()->NewFastOrSlowJSObjectFromMap(
+        direct_handle(target->initial_map(), isolate));
   } else {
     ASSIGN_RETURN_ON_EXCEPTION(isolate, err,
                                JSObject::New(target, new_target_recv, {}));
