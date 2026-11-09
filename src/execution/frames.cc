@@ -942,10 +942,17 @@ StackFrame::Type StackFrameIterator::ComputeStackFrameType(
 #if V8_ENABLE_WEBASSEMBLY
   // If the {pc} does not point into WebAssembly code we can rely on the
   // returned {wasm_code} to be null and fall back to {GetContainingCode}.
+  // The Wasm code manager never allocates inside the embedded blob, and it
+  // only allocates inside the heap's code range on iOS (where the code range
+  // owns the process's single MAP_JIT mapping, see wasm-code-manager.cc), so
+  // a {pc} in one of these regions needs no lookup.
   bool definitely_v8_code = isolate_->embedded_blob_code_region().contains(pc);
 #ifndef V8_OS_IOS
   definitely_v8_code |= isolate_->heap()->code_region().contains(pc);
 #endif
+  // A null isolate makes the lookup bypass (and not disturb) the lookup cache.
+  DCHECK_IMPLIES(definitely_v8_code, wasm::GetWasmCodeManager()->LookupCode(
+                                         nullptr, pc) == nullptr);
   wasm::WasmCode* wasm_code = nullptr;
   if (V8_UNLIKELY(!definitely_v8_code)) {
     wasm_code = wasm::GetWasmCodeManager()->LookupCode(isolate(), pc);
