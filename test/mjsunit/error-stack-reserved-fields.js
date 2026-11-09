@@ -19,7 +19,13 @@ function assertCapturedIn(name, error) {
 // Checks that |error| holds the stack captured at construction, and that
 // Error.captureStackTrace replaces it.
 function checkStackIsReplaced(error, read_first = false) {
-  if (read_first) assertCapturedIn('origin', error);
+  if (read_first) {
+    if (kCapturesNoFrames.has(error)) {
+      assertEquals(1, error.stack.split('\n').length, error.stack);
+    } else {
+      assertCapturedIn('origin', error);
+    }
+  }
   recapture(error);
   assertCapturedIn('recapture', error);
   assertFalse(error.stack.includes('at origin ('), error.stack);
@@ -40,6 +46,18 @@ class SubError extends Error {
   }
 }
 
+// With a new.target other than the constructor that was called, the capture
+// skips frames until it reaches new.target's frame, which is never on the
+// stack: the stack captured at construction has no frames.
+const kCapturesNoFrames = new WeakSet();
+function capturesNoFrames(make) {
+  return () => {
+    const error = make();
+    kCapturesNoFrames.add(error);
+    return error;
+  };
+}
+
 const kFactories = [
   () => new Error('m'),
   () => new Error(),
@@ -50,8 +68,8 @@ const kFactories = [
   () => new AggregateError([1], 'm'),
   () => new SubError('m'),
   () => new SubError(),
-  () => Reflect.construct(Error, ['m'], Object),
-  () => Reflect.construct(RangeError, ['m'], SubError),
+  capturesNoFrames(() => Reflect.construct(Error, ['m'], Object)),
+  capturesNoFrames(() => Reflect.construct(RangeError, ['m'], SubError)),
   () => { try { null.x; } catch (e) { return e; } },
 ];
 
