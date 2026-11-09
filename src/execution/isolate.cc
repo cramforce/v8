@@ -2200,60 +2200,43 @@ MaybeDirectHandle<Script> Isolate::CurrentReferrerScript() {
 
 namespace {
 
-V8_NOINLINE DirectHandle<Object> GetStackTraceLimitSlowPath(
-    Isolate* isolate, DirectHandle<JSObject> error, DirectHandle<String> key,
-    InternalIndex descriptor) {
-  if (error->HasFastProperties()) {
-    if (descriptor.is_found()) {
-      Tagged<DescriptorArray> descriptors =
-          error->map()->instance_descriptors();
-      DCHECK_EQ(PropertyKind::kAccessor,
-                descriptors->GetDetails(descriptor).kind());
-      Tagged<Object> accessors = descriptors->GetStrongValue(descriptor);
-      if (!IsAccessorInfo(accessors)) {
-        return isolate->factory()->undefined_value();
-      }
+// Reads |key| from |object| if it is an own data property: a field (or
+// descriptor constant) of a fast-mode object, or a data entry of a
+// dictionary-mode object. Returns false in every other case (accessor or
+// absent), for which the caller has to do the generic lookup. |object| must
+// not need access checks or have interceptors. Double fields are returned as
+// the HeapNumber box they are stored in, so |value| may only be read, never
+// stored anywhere.
+bool TryGetOwnDataPropertyFast(Isolate* isolate, DirectHandle<JSObject> object,
+                               DirectHandle<Name> key, Tagged<Object>* value) {
+  DisallowGarbageCollection no_gc;
+  Tagged<Map> map = object->map();
+  DCHECK(!IsSpecialReceiverMap(map));
+  if (V8_LIKELY(!map->is_dictionary_map())) {
+    Tagged<DescriptorArray> descriptors = map->instance_descriptors();
+    InternalIndex descriptor = descriptors->SearchWithCache(isolate, *key, map);
+    if (descriptor.is_not_found()) return false;
+    PropertyDetails details = descriptors->GetDetails(descriptor);
+    if (details.kind() != PropertyKind::kData) return false;
+    if (V8_LIKELY(details.location() == PropertyLocation::kField)) {
+      *value = object->RawFastPropertyAt(FieldIndex::ForDetails(map, details));
+    } else {
+      *value = descriptors->GetStrongValue(descriptor);
     }
-    return JSReceiver::GetDataProperty(isolate, error, key);
+    return true;
   }
-
+  auto lookup = [&](auto dictionary) {
+    InternalIndex entry = dictionary->FindEntry(isolate, key);
+    if (entry.is_not_found()) return false;
+    if (dictionary->DetailsAt(entry).kind() != PropertyKind::kData) return false;
+    *value = dictionary->ValueAt(entry);
+    return true;
+  };
   if constexpr (V8_ENABLE_SWISS_NAME_DICTIONARY_BOOL) {
-    DirectHandle<SwissNameDictionary> dictionary(
-        error->property_dictionary_swiss(), isolate);
-    InternalIndex entry = dictionary->FindEntry(isolate, key);
-    if (entry.is_found()) {
-      Tagged<Object> value = dictionary->ValueAt(entry);
-      if (dictionary->DetailsAt(entry).kind() == PropertyKind::kData) {
-        return direct_handle(value, isolate);
-      }
-      if (!IsAccessorInfo(value)) {
-        return isolate->factory()->undefined_value();
-      }
-      return JSReceiver::GetDataProperty(isolate, error, key);
-    }
+    return lookup(object->property_dictionary_swiss());
   } else {
-    DirectHandle<NameDictionary> dictionary(error->property_dictionary(),
-                                            isolate);
-    InternalIndex entry = dictionary->FindEntry(isolate, key);
-    if (entry.is_found()) {
-      Tagged<Object> value = dictionary->ValueAt(entry);
-      if (dictionary->DetailsAt(entry).kind() == PropertyKind::kData) {
-        return direct_handle(value, isolate);
-      }
-      if (!IsAccessorInfo(value)) {
-        return isolate->factory()->undefined_value();
-      }
-      return JSReceiver::GetDataProperty(isolate, error, key);
-    }
+    return lookup(object->property_dictionary());
   }
-
-  Tagged<JSPrototype> prototype = error->map()->prototype();
-  if (IsNull(prototype)) return isolate->factory()->undefined_value();
-  DirectHandle<JSAny> lookup_start(Cast<JSReceiver>(prototype), isolate);
-  LookupIterator it(isolate, error, key, lookup_start,
-                    LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR);
-  if (!it.IsFound()) return isolate->factory()->undefined_value();
-  return JSReceiver::GetDataProperty(&it);
 }
 
 }  // namespace
@@ -2263,43 +2246,22 @@ bool Isolate::GetStackTraceLimit(Isolate* isolate, int* result) {
   DirectHandle<JSObject> error = isolate->error_function();
 
   DirectHandle<String> key = isolate->factory()->stackTraceLimit_string();
-  DirectHandle<Object> stack_trace_limit;
-  if (V8_LIKELY(error->HasFastProperties())) {
-    DirectHandle<Map> map(error->map(), isolate);
-    DirectHandle<DescriptorArray> descriptors(map->instance_descriptors(),
-                                               isolate);
-    InternalIndex descriptor = InternalIndex::NotFound();
-    PropertyDetails details = PropertyDetails::Empty();
-    {
-      DisallowGarbageCollection no_gc;
-      descriptor = descriptors->SearchWithCache(isolate, *key, *map);
-      if (descriptor.is_found()) details = descriptors->GetDetails(descriptor);
+  // Error.stackTraceLimit is almost always an own data property of the Error
+  // constructor. Everything else (deleted, accessor, inherited from the
+  // prototype chain) keeps the semantics of JSReceiver::GetDataProperty.
+  double limit;
+  {
+    Tagged<Object> raw_limit;
+    if (V8_UNLIKELY(
+            !TryGetOwnDataPropertyFast(isolate, error, key, &raw_limit))) {
+      raw_limit = *JSReceiver::GetDataProperty(isolate, error, key);
     }
-    if (V8_LIKELY(descriptor.is_found() &&
-                  details.kind() == PropertyKind::kData)) {
-      if (V8_LIKELY(details.location() == PropertyLocation::kField)) {
-        stack_trace_limit = JSObject::FastPropertyAt(
-            isolate, error, details.representation(),
-            FieldIndex::ForDetails(*map, details));
-      } else {
-        stack_trace_limit = direct_handle(
-            descriptors->GetStrongValue(descriptor), isolate);
-      }
-    } else if (descriptor.is_found()) {
-      stack_trace_limit =
-          GetStackTraceLimitSlowPath(isolate, error, key, descriptor);
-    } else {
-      stack_trace_limit = JSReceiver::GetDataProperty(isolate, error, key);
-    }
-  } else {
-    stack_trace_limit = GetStackTraceLimitSlowPath(
-        isolate, error, key, InternalIndex::NotFound());
+    if (!IsNumber(raw_limit)) return false;
+    limit = Object::NumberValue(Cast<Number>(raw_limit));
   }
-  if (!IsNumber(*stack_trace_limit)) return false;
 
   // Ensure that limit is not negative.
-  *result = std::max(
-      FastD2IChecked(Object::NumberValue(Cast<Number>(*stack_trace_limit))), 0);
+  *result = std::max(FastD2IChecked(limit), 0);
 
   if (*result != v8_flags.stack_trace_limit) {
     isolate->CountUsage(v8::Isolate::kErrorStackTraceLimit);
